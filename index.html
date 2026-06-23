@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>말씀 인출 훈련 시스템</title>
+    <style>
+        :root {
+            --primary: #4A90E2;
+            --bg: #F5F7FA;
+            --text: #333333;
+            --border: #E4E8F0;
+        }
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            text-align: center;
+            color: var(--primary);
+            margin-bottom: 30px;
+        }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+        .setup-group {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+        select {
+            padding: 8px 12px;
+            font-size: 1em;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+        .btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        button {
+            padding: 15px;
+            font-size: 1.1em;
+            border: none;
+            border-radius: 8px;
+            background-color: var(--primary);
+            color: white;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        button:disabled {
+            background-color: #A0C3EB;
+            cursor: not-allowed;
+        }
+        .secondary-btn {
+            background-color: #6c757d;
+        }
+        
+        /* 퀴즈 화면 스타일 */
+        #quiz-container {
+            display: none;
+        }
+        .question-text {
+            font-size: 1.2em;
+            font-weight: 600;
+            margin-bottom: 20px;
+            word-break: keep-all;
+        }
+        .input-area {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        input[type="text"], textarea {
+            padding: 15px;
+            font-size: 1em;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            width: 100%;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+        .choice-btn {
+            background-color: white;
+            color: var(--text);
+            border: 2px solid var(--border);
+            text-align: left;
+        }
+        .choice-btn:hover {
+            border-color: var(--primary);
+            background-color: #F8FBFF;
+        }
+        .feedback {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-weight: bold;
+            display: none;
+        }
+        .feedback.correct {
+            background-color: #D4EDDA;
+            color: #155724;
+            display: block;
+        }
+        .feedback.incorrect {
+            background-color: #F8D7DA;
+            color: #721C24;
+            display: block;
+        }
+        .correct-answer-show {
+            margin-top: 10px;
+            font-weight: normal;
+            font-size: 0.95em;
+        }
+        #next-btn {
+            margin-top: 20px;
+            width: 100%;
+            display: none;
+        }
+        .header-nav {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .back-link {
+            color: #6c757d;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+
+    <script src="data.js"></script>
+
+    <div id="app">
+        <h1>말씀 인출 훈련</h1>
+
+        <div id="setup-container" class="card">
+            <div class="setup-group">
+                <select id="start-chapter"></select> 장 ~ 
+                <select id="end-chapter"></select> 장
+            </div>
+            
+            <div class="btn-group">
+                <button onclick="startTraining('MODE_REF')">인출훈련 (내용 보고 장절 찾기)</button>
+                <button onclick="startTraining('MODE_TEXT')">인출훈련 (장절 보고 내용 쓰기)</button>
+                <button onclick="startTraining('MODE_CHOICE')">사지선다 (객관식 장절 찾기)</button>
+            </div>
+        </div>
+
+        <div id="quiz-container" class="card">
+            <div class="header-nav">
+                <span class="back-link" onclick="goBack()">← 처음으로</span>
+                <span id="progress-info"></span>
+            </div>
+            
+            <div id="question" class="question-text"></div>
+            
+            <div id="input-container" class="input-area">
+                </div>
+
+            <div id="feedback" class="feedback"></div>
+            <button id="next-btn" onclick="loadNextQuestion()">다음 문제</button>
+        </div>
+    </div>
+
+    <script>
+        let currentMode = '';
+        let currentQuestion = null;
+        let questionPool = [];
+        
+        // 초기화: 장 번호 드롭다운 세팅
+        window.onload = function() {
+            if (typeof window.BIBLE === 'undefined') {
+                alert('data.js 파일을 찾을 수 없거나 BIBLE 데이터가 없습니다.');
+                return;
+            }
+            
+            const chapters = Object.keys(window.BIBLE).map(Number).sort((a, b) => a - b);
+            const startSelect = document.getElementById('start-chapter');
+            const endSelect = document.getElementById('end-chapter');
+            
+            chapters.forEach(ch => {
+                startSelect.add(new Option(`${ch}장`, ch));
+                endSelect.add(new Option(`${ch}장`, ch));
+            });
+            
+            // 기본값 설정 (예: 7장 ~ 12장)
+            if(chapters.includes(7)) startSelect.value = 7;
+            if(chapters.includes(12)) endSelect.value = 12;
+            else endSelect.value = chapters[chapters.length - 1];
+        };
+
+        function goBack() {
+            document.getElementById('setup-container').style.display = 'block';
+            document.getElementById('quiz-container').style.display = 'none';
+        }
+
+        // 훈련 시작 및 문제 풀(Pool) 생성
+        function startTraining(mode) {
+            currentMode = mode;
+            const startCh = parseInt(document.getElementById('start-chapter').value);
+            const endCh = parseInt(document.getElementById('end-chapter').value);
+
+            if (startCh > endCh) {
+                alert('시작 장이 끝 장보다 클 수 없습니다.');
+                return;
+            }
+
+            questionPool = [];
+            for (let c = startCh; c <= endCh; c++) {
+                if (window.BIBLE[c]) {
+                    for (let v in window.BIBLE[c]) {
+                        questionPool.push({
+                            chapter: parseInt(c),
+                            verse: parseInt(v),
+                            text: window.BIBLE[c][v]
+                        });
+                    }
+                }
+            }
+
+            if (questionPool.length === 0) {
+                alert('선택한 범위에 말씀이 없습니다.');
+                return;
+            }
+
+            document.getElementById('setup-container').style.display = 'none';
+            document.getElementById('quiz-container').style.display = 'block';
+            
+            loadNextQuestion();
+        }
+
+        // 다음 문제 로드
+        function loadNextQuestion() {
+            // UI 초기화
+            document.getElementById('feedback').className = 'feedback';
+            document.getElementById('next-btn').style.display = 'none';
+            document.getElementById('input-container').innerHTML = '';
+            
+            // 랜덤 문제 선택
+            const randomIndex = Math.floor(Math.random() * questionPool.length);
+            currentQuestion = questionPool[randomIndex];
+
+            const qElement = document.getElementById('question');
+            const inputContainer = document.getElementById('input-container');
+
+            if (currentMode === 'MODE_REF') {
+                qElement.innerText = `"${currentQuestion.text}"`;
+                inputContainer.innerHTML = `
+                    <input type="text" id="answer-input" placeholder="예: 12:7 또는 12장 7절" onkeypress="handleEnter(event)">
+                    <button onclick="checkAnswer()">정답 확인</button>
+                `;
+                document.getElementById('answer-input').focus();
+            } 
+            else if (currentMode === 'MODE_TEXT') {
+                qElement.innerText = `계시록 ${currentQuestion.chapter}장 ${currentQuestion.verse}절을 쓰시오.`;
+                inputContainer.innerHTML = `
+                    <textarea id="answer-input" rows="4" placeholder="말씀을 입력하세요 (띄어쓰기 무시됨)"></textarea>
+                    <button onclick="checkAnswer()">정답 확인</button>
+                `;
+                document.getElementById('answer-input').focus();
+            } 
+            else if (currentMode === 'MODE_CHOICE') {
+                qElement.innerText = `"${currentQuestion.text}"`;
+                const choices = generateChoices(currentQuestion);
+                choices.forEach(choice => {
+                    const btn = document.createElement('button');
+                    btn.className = 'choice-btn';
+                    btn.innerText = `${choice.c}장 ${choice.v}절`;
+                    btn.onclick = () => checkChoice(choice.isCorrect, btn);
+                    inputContainer.appendChild(btn);
+                });
+            }
+        }
+
+        // 엔터키 입력 처리
+        function handleEnter(e) {
+            if (e.key === 'Enter') {
+                checkAnswer();
+            }
+        }
+
+        // 사지선다 오답(매력적인 오답) 생성 로직
+        function generateChoices(correct) {
+            let choices = [{ c: correct.chapter, v: correct.verse, isCorrect: true }];
+            
+            // 같은 장의 다른 절을 우선적으로 찾음 (헷갈리게 만들기 위해)
+            let sameChapter = questionPool.filter(q => q.chapter === correct.chapter && q.verse !== correct.verse);
+            sameChapter.sort(() => Math.random() - 0.5); // 셔플
+            
+            // 같은 장에서 최대 2개 추가
+            for(let i=0; i<2 && i<sameChapter.length; i++) {
+                choices.push({ c: sameChapter[i].chapter, v: sameChapter[i].verse, isCorrect: false });
+            }
+
+            // 나머지 보기는 다른 장에서 무작위 추출
+            let otherChapters = questionPool.filter(q => q.chapter !== correct.chapter);
+            otherChapters.sort(() => Math.random() - 0.5);
+
+            while(choices.length < 4 && otherChapters.length > 0) {
+                let p = otherChapters.pop();
+                choices.push({ c: p.chapter, v: p.verse, isCorrect: false });
+            }
+
+            // 보기 섞기
+            return choices.sort(() => Math.random() - 0.5);
+        }
+
+        // 정답 확인 로직 (주관식)
+        function checkAnswer() {
+            const userInput = document.getElementById('answer-input').value;
+            let isCorrect = false;
+
+            if (currentMode === 'MODE_REF') {
+                // 입력값에서 숫자만 추출 (예: "12장 7절" -> [12, 7])
+                const nums = userInput.match(/\d+/g);
+                if (nums && nums.length >= 2) {
+                    const inputC = parseInt(nums[0]);
+                    const inputV = parseInt(nums[1]);
+                    if (inputC === currentQuestion.chapter && inputV === currentQuestion.verse) {
+                        isCorrect = true;
+                    }
+                }
+            } 
+            else if (currentMode === 'MODE_TEXT') {
+                // 띄어쓰기 완전 무시 비교
+                const cleanInput = userInput.replace(/\s+/g, '');
+                const cleanAnswer = currentQuestion.text.replace(/\s+/g, '');
+                if (cleanInput === cleanAnswer) {
+                    isCorrect = true;
+                }
+            }
+
+            showFeedback(isCorrect);
+        }
+
+        // 정답 확인 로직 (객관식)
+        function checkChoice(isCorrect, btnElement) {
+            // 버튼 비활성화
+            const buttons = document.querySelectorAll('.choice-btn');
+            buttons.forEach(b => b.disabled = true);
+            
+            if (!isCorrect) {
+                btnElement.style.backgroundColor = '#F8D7DA';
+                btnElement.style.borderColor = '#F5C6CB';
+            }
+            
+            // 정답 버튼 시각적 표시
+            buttons.forEach(b => {
+                if (b.innerText === `${currentQuestion.chapter}장 ${currentQuestion.verse}절`) {
+                    b.style.backgroundColor = '#D4EDDA';
+                    b.style.borderColor = '#C3E6CB';
+                }
+            });
+
+            showFeedback(isCorrect);
+        }
+
+        // 피드백 표시
+        function showFeedback(isCorrect) {
+            const feedback = document.getElementById('feedback');
+            const nextBtn = document.getElementById('next-btn');
+
+            if (isCorrect) {
+                feedback.innerHTML = '정답입니다! 🎉';
+                feedback.className = 'feedback correct';
+            } else {
+                let msg = '틀렸습니다.';
+                if (currentMode === 'MODE_REF' || currentMode === 'MODE_CHOICE') {
+                    msg += `<div class="correct-answer-show">정답: <b>${currentQuestion.chapter}장 ${currentQuestion.verse}절</b></div>`;
+                } else if (currentMode === 'MODE_TEXT') {
+                    msg += `<div class="correct-answer-show">정답:<br>${currentQuestion.text}</div>`;
+                }
+                feedback.innerHTML = msg;
+                feedback.className = 'feedback incorrect';
+            }
+
+            nextBtn.style.display = 'block';
+            nextBtn.focus();
+        }
+    </script>
+</body>
+</html>
